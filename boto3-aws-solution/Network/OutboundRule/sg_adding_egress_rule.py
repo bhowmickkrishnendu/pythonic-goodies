@@ -26,3 +26,22 @@ def create_egress_rules(group_id, rules):
 
     return response
 
+# Network:Security:OutboundRules
+if __name__ == "__main__":
+    group_id = 'sg-0eb0590edd65f2941'
+    rules = [
+        {
+            'protocol': 'tcp',
+            'port_range': (80, 80),
+            'cidr_block': '192.168.1.112/32',
+            'description': 'Allow HTTP Traffic'
+        },
+        {
+            'protocol': 'tcp',
+            'port_range': (443,443),
+            'cidr_block': '192.168.1.112/32',
+            'description': 'Allow HTTP Traffic'
+        }
+    ]
+
+    create_egress_rules(group_id, rules)
