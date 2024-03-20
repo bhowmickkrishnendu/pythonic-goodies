@@ -66,6 +66,28 @@ def signup():
 
     return jsonify({"message": "User created successfully"}), 201
 
+@app.route('/deleteUser', methods=['DELETE'])
+def delete_user():
+    data = request.get_json()
+
+    username = data.get('username')
+
+    cursor = db.cursor()
+    # Check if the username exists
+    query = "SELECT * FROM user_login WHERE username = %s"
+    cursor.execute(query, (username,))
+    user = cursor.fetchone()
+
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    # Delete the user
+    delete_query = "DELETE FROM user_login WHERE username = %s"
+    cursor.execute(delete_query, (username,))
+    db.commit()
+
+    return jsonify({"message": "User deleted successfully"}), 200
+
 
 
 if __name__ == '__main__':
