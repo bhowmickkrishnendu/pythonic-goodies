@@ -111,6 +111,36 @@ def view_profile():
         return jsonify(profile_data), 200
     else:
         return jsonify({"message": "User not found"}), 404
+    
+@app.route('/updateUser', methods=['PUT'])
+def update_user():
+    data = request.get_json()
+    username = data.get('username')
+    firstname = data.get('firstname')
+    lastname = data.get('lastname')
+    email = data.get('email')
+    phone_number = data.get('phone_number')
+
+    # Validate input data (you can add more validation as needed)
+    if not all([firstname, lastname, email, phone_number]):
+        return jsonify({"message": "Missing required fields"}), 400
+
+    # Check if the user exists
+    cursor = db.cursor()
+    query = "SELECT * FROM user_login WHERE username = %s"
+    cursor.execute(query, (username,))
+    user = cursor.fetchone()
+
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    # Update user data in the database
+    update_query = "UPDATE user_login SET firstname = %s, lastname = %s, email = %s, phone_number = %s WHERE username = %s"
+    cursor.execute(update_query, (firstname, lastname, email, phone_number, username))
+    db.commit()
+
+    return jsonify({"message": "User data updated successfully"}), 200
+
 
 if __name__ == '__main__':
     app.run(debug=True)
