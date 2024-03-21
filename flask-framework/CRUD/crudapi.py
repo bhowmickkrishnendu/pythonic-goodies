@@ -88,7 +88,29 @@ def delete_user():
 
     return jsonify({"message": "User deleted successfully"}), 200
 
+@app.route('/viewProfile', methods=['GET'])
+def view_profile():
+    data = request.get_json()
+    username = data.get('username')
 
+    app.logger.info("Received request for username: %s", username)
+
+    cursor = db.cursor()
+    query = "SELECT firstname, lastname, email, phone_number FROM user_login WHERE username = %s"
+    cursor.execute(query, (username,))
+    user = cursor.fetchone()
+
+    if user:
+        firstname, lastname, email, phone_number = user
+        profile_data = {
+            "firstname": firstname,
+            "lastname": lastname,
+            "email": email,
+            "phone_number": phone_number
+        }
+        return jsonify(profile_data), 200
+    else:
+        return jsonify({"message": "User not found"}), 404
 
 if __name__ == '__main__':
     app.run(debug=True)
