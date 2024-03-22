@@ -124,6 +124,10 @@ def update_user():
     # Validate input data (you can add more validation as needed)
     if not all([firstname, lastname, email, phone_number]):
         return jsonify({"message": "Missing required fields"}), 400
+    
+    # Check if phone number is exactly 10 digits
+    if len(str(phone_number)) != 10:
+        return jsonify({"message": "Phone number should be 10 digits"}), 400
 
     # Check if the user exists
     cursor = db.cursor()
