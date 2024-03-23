@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import mysql.connector
 
 app = Flask(__name__)
+CORS(app, origins=['http://localhost:3000'])
 
 db = mysql.connector.connect(
     host="localhost",
@@ -51,6 +53,9 @@ def signup():
     
     if len(str(phone_number)) != 10:
         return jsonify({"message": "Phone number should be 10 digits"}), 400
+    
+    if not phone_number.isdigit():
+        return jsonify({"message": "Phone number should contain only numerical digits"}), 400
     
     cursor = db.cursor()
     query = "SELECT * FROM user_login WHERE username = %s"
@@ -128,6 +133,9 @@ def update_user():
     # Check if phone number is exactly 10 digits
     if len(str(phone_number)) != 10:
         return jsonify({"message": "Phone number should be 10 digits"}), 400
+    
+    if not phone_number.isdigit():
+        return jsonify({"message": "Phone number should contain only numerical digits"}), 400
 
     # Check if the user exists
     cursor = db.cursor()
@@ -144,6 +152,25 @@ def update_user():
     db.commit()
 
     return jsonify({"message": "User data updated successfully"}), 200
+
+@app.route('/checkUsernameAvailability', methods=['POST'])
+def check_username_availability():
+    data = request.get_json()
+    username = data.get('username')
+
+    if not username:
+        return jsonify({"message": "Username is required"}), 400
+
+    cursor = db.cursor()
+    query = "SELECT * FROM user_login WHERE username = %s"
+    cursor.execute(query, (username,))
+    user = cursor.fetchone()
+
+    if user:
+        return jsonify({"message": "Username is not available"}), 409
+    else:
+        return jsonify({"message": "Username is available"}), 200
+
 
 
 if __name__ == '__main__':
