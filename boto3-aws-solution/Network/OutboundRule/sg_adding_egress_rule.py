@@ -12,7 +12,7 @@ def create_egress_rules(group_id, rules):
                 {
                     'IpProtocol': rule['protocol'],
                     'FromPort': rule['port_range'][0],
-                    'ToPort': rule['prot_range'][1],
+                    'ToPort': rule['port_range'][1],
                     'IpRanges': [
                         {
                             'CidrIp': rule['cidr_block'],
