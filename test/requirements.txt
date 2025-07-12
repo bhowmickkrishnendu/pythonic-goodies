@@ -1,0 +1,12 @@
+flask==2.0.1
+werkzeug==2.0.1
+flask-cors
+yfinance
+pandas
+numpy
+matplotlib
+requests
+bs4
+mysql-connector-python
+bcrypt
+pyjwt
