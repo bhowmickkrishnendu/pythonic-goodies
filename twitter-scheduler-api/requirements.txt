@@ -1,0 +1,12 @@
+Flask
+flask-cors
+flask-jwt-extended
+tweepy
+sqlalchemy
+apscheduler
+mysql-connector-python
+PyMySQL
+Werkzeug
+requests
+pyotp
+qrcode
