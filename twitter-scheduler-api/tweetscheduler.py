@@ -19,7 +19,6 @@ import secrets
 
 app = Flask(__name__)
 
-CORS(app, origins=['http://localhost:3000'], supports_credentials=True)
 
 # JWT Configuration
 app.config['JWT_SECRET_KEY'] = secrets.token_hex(32)  # Change this to a random secret key
@@ -355,32 +354,38 @@ def login():
         log_login_attempt(username, ip_address, user_agent, 'failed', 'Invalid password')
         return jsonify({"error": "Invalid credentials"}), 401
 
-    # Check if 2FA is enabled
+    # Enhanced 2FA flow
     if user['is_2fa_enabled']:
-        if not totp_code:
-            # Initial login - no reCAPTCHA required yet
+        if not user['totp_secret']:
+            # 2FA enabled but not set up yet: allow password login, trigger QR setup
             return jsonify({
-                "message": "2FA code required",
-                "requires_2fa": True,
+                "message": "2FA setup required",
+                "requires_2fa_setup": True,
                 "user_id": user['id']
             }), 200
-        
-        # 2FA step - NOW require reCAPTCHA
-        if not recaptcha_response or not verify_recaptcha(recaptcha_response):
-            log_login_attempt(username, ip_address, user_agent, 'failed', 'Invalid reCAPTCHA on 2FA')
-            return jsonify({"error": "Invalid reCAPTCHA"}), 400
-            
-        # Verify TOTP code
-        totp = pyotp.TOTP(user['totp_secret'])
-        if not totp.verify(totp_code):
-            update_failed_login(user['id'], ip_address)
-            log_login_attempt(username, ip_address, user_agent, 'failed', 'Invalid 2FA code')
-            return jsonify({"error": "Invalid 2FA code"}), 401
-    else:
-        # No 2FA - require reCAPTCHA for regular login
-        if not recaptcha_response or not verify_recaptcha(recaptcha_response):
-            log_login_attempt(username, ip_address, user_agent, 'failed', 'Invalid reCAPTCHA')
-            return jsonify({"error": "Invalid reCAPTCHA"}), 400
+        else:
+            # 2FA enabled and secret exists: require OTP
+            if not totp_code:
+                return jsonify({
+                    "message": "2FA code required",
+                    "requires_2fa": True,
+                    "user_id": user['id']
+                }), 200
+
+            # 2FA step - NOW require reCAPTCHA
+            if not recaptcha_response or not verify_recaptcha(recaptcha_response):
+                log_login_attempt(username, ip_address, user_agent, 'failed', 'Invalid reCAPTCHA on 2FA')
+                return jsonify({"error": "Invalid reCAPTCHA"}), 400
+
+            # Verify TOTP code
+            totp = pyotp.TOTP(user['totp_secret'])
+            if not totp.verify(totp_code):
+                update_failed_login(user['id'], ip_address)
+                log_login_attempt(username, ip_address, user_agent, 'failed', 'Invalid 2FA code')
+                return jsonify({"error": "Invalid 2FA code"}), 401
+
+    # NO reCAPTCHA required for users without 2FA or initial login
+    # (Remove the else block that was requiring reCAPTCHA)
 
     # Login successful
     access_token = create_access_token(
