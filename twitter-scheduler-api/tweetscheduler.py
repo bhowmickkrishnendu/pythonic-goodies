@@ -9,7 +9,10 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from datetime import datetime, timedelta
 import mysql.connector
 from werkzeug.security import check_password_hash
+<<<<<<< HEAD
 from werkzeug.utils import secure_filename  # ADD THIS
+=======
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
 import requests
 import pyotp
 import qrcode
@@ -17,6 +20,7 @@ import io
 import base64
 from functools import wraps
 import secrets
+<<<<<<< HEAD
 import os  # ADD THIS
 import json  # ADD THIS
 import logging
@@ -24,11 +28,19 @@ import logging
 
 app = Flask(__name__)
 
+=======
+
+app = Flask(__name__)
+
+CORS(app, origins=['http://localhost:3000'], supports_credentials=True)
+
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
 # JWT Configuration
 app.config['JWT_SECRET_KEY'] = secrets.token_hex(32)  # Change this to a random secret key
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
 jwt = JWTManager(app)
 
+<<<<<<< HEAD
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
@@ -48,6 +60,8 @@ def log_request_info():
         if posts_data:
             app.logger.debug(f"Posts field content (first 200 chars): {posts_data[:200]}")
 
+=======
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
 # Read API keys and MySQL credentials from keys.txt
 def read_keys(filename="keys.txt"):
     with open(filename, "r") as f:
@@ -65,6 +79,7 @@ MYSQL_DB = 'apscheduler_db'
 
 # Database connection
 def get_db_connection():
+<<<<<<< HEAD
     max_retries = 3
     retry_delay = 1
     
@@ -89,6 +104,18 @@ def get_db_connection():
                 time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
             else:
                 raise e
+=======
+    conn = mysql.connector.connect(
+        host=MYSQL_HOST,
+        user=mysql_user,
+        password=mysql_password,
+        database=MYSQL_DB
+    )
+    cursor = conn.cursor()
+    cursor.execute("SET time_zone = '+05:30'")
+    cursor.close()
+    return conn
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
 
 # Initialize database tables
 def init_db():
@@ -170,7 +197,11 @@ jobstores = {
     'default': SQLAlchemyJobStore(engine=engine)
 }
 
+<<<<<<< HEAD
 x(jobstores=jobstores)
+=======
+scheduler = BackgroundScheduler(jobstores=jobstores)
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
 scheduler.start()
 
 # Tweepy client setup
@@ -180,11 +211,14 @@ client = tweepy.Client(
     access_token=access_token,
     access_token_secret=access_token_secret
 )
+<<<<<<< HEAD
 auth = tweepy.OAuth1UserHandler(
     consumer_key, consumer_secret, 
     access_token, access_token_secret
 )
 api = tweepy.API(auth)
+=======
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
 
 # JWT token blacklist check
 @jwt.token_in_blocklist_loader
@@ -396,6 +430,7 @@ def login():
         log_login_attempt(username, ip_address, user_agent, 'failed', 'Invalid password')
         return jsonify({"error": "Invalid credentials"}), 401
 
+<<<<<<< HEAD
     # Enhanced 2FA flow
     if user['is_2fa_enabled']:
         if not user['totp_secret']:
@@ -428,6 +463,34 @@ def login():
 
     # NO reCAPTCHA required for users without 2FA or initial login
     # (Remove the else block that was requiring reCAPTCHA)
+=======
+    # Check if 2FA is enabled
+    if user['is_2fa_enabled']:
+        if not totp_code:
+            # Initial login - no reCAPTCHA required yet
+            return jsonify({
+                "message": "2FA code required",
+                "requires_2fa": True,
+                "user_id": user['id']
+            }), 200
+        
+        # 2FA step - NOW require reCAPTCHA
+        if not recaptcha_response or not verify_recaptcha(recaptcha_response):
+            log_login_attempt(username, ip_address, user_agent, 'failed', 'Invalid reCAPTCHA on 2FA')
+            return jsonify({"error": "Invalid reCAPTCHA"}), 400
+            
+        # Verify TOTP code
+        totp = pyotp.TOTP(user['totp_secret'])
+        if not totp.verify(totp_code):
+            update_failed_login(user['id'], ip_address)
+            log_login_attempt(username, ip_address, user_agent, 'failed', 'Invalid 2FA code')
+            return jsonify({"error": "Invalid 2FA code"}), 401
+    else:
+        # No 2FA - require reCAPTCHA for regular login
+        if not recaptcha_response or not verify_recaptcha(recaptcha_response):
+            log_login_attempt(username, ip_address, user_agent, 'failed', 'Invalid reCAPTCHA')
+            return jsonify({"error": "Invalid reCAPTCHA"}), 400
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
 
     # Login successful
     access_token = create_access_token(
@@ -874,6 +937,7 @@ def split_text(text, max_length=280, cont_text=" (cont.)"):
 
 scheduled_posts_info = {}
 
+<<<<<<< HEAD
 def post_thread(long_post, job_id, user_id, image_path=None):
     chunks = split_text(long_post)
     try:
@@ -895,10 +959,20 @@ def post_thread(long_post, job_id, user_id, image_path=None):
         print(f"Posted tweet {tweet_id} for user {user_id}")
         
         # Post remaining chunks
+=======
+def post_thread(long_post, job_id, user_id):
+    chunks = split_text(long_post)
+    try:
+        response = client.create_tweet(text=chunks[0])
+        tweet_id = response.data['id']
+        print(f"Posted first tweet with ID {tweet_id} for user {user_id}")
+        
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
         for chunk in chunks[1:]:
             time.sleep(60)
             response = client.create_tweet(text=chunk, in_reply_to_tweet_id=tweet_id)
             tweet_id = response.data['id']
+<<<<<<< HEAD
         
         # Clean up
         if job_id in scheduled_posts_info:
@@ -914,6 +988,15 @@ def post_thread(long_post, job_id, user_id, image_path=None):
                 os.remove(image_path)
             except:
                 pass
+=======
+            print(f"Posted reply tweet with ID {tweet_id}")
+        
+        if job_id in scheduled_posts_info:
+            del scheduled_posts_info[job_id]
+        return True, tweet_id
+    except Exception as e:
+        print(f"Error posting thread: {e}")
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
         if job_id in scheduled_posts_info:
             del scheduled_posts_info[job_id]
         return False, str(e)
@@ -921,6 +1004,7 @@ def post_thread(long_post, job_id, user_id, image_path=None):
 @app.route('/schedule_posts', methods=['POST'])
 @jwt_required()
 def schedule_posts():
+<<<<<<< HEAD
     try:
         user_id = int(get_jwt_identity())
         
@@ -1024,10 +1108,47 @@ def uploaded_file(filename):
         return send_from_directory(upload_dir, filename)
     except Exception:
         return jsonify({"error": "File not found"}), 404
+=======
+    user_id = int(get_jwt_identity())  # Convert string back to int
+    data = request.json
+    
+    if not data or 'posts' not in data:
+        return jsonify({"error": "Missing 'posts' field in JSON body"}), 400
+
+    posts = data['posts']
+    scheduled_jobs = []
+    
+    for post in posts:
+        if 'text' not in post or 'time' not in post:
+            return jsonify({"error": "Each post must have 'text' and 'time' fields"}), 400
+        try:
+            scheduled_time = datetime.strptime(post['time'], "%Y-%m-%d %H:%M:%S")
+            now = datetime.now()
+            if scheduled_time <= now:
+                return jsonify({"error": f"Scheduled time {post['time']} must be in the future"}), 400
+            
+            job = scheduler.add_job(post_thread, 'date', run_date=scheduled_time, args=[post['text'], None, user_id])
+            
+            scheduled_posts_info[job.id] = {
+                "text": post['text'][:100] + "..." if len(post['text']) > 100 else post['text'],
+                "full_text": post['text'],
+                "scheduled_time": post['time'],
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "user_id": user_id
+            }
+            
+            job.modify(args=[post['text'], job.id, user_id])
+            scheduled_jobs.append({"post_time": post['time'], "job_id": job.id})
+        except ValueError:
+            return jsonify({"error": f"Invalid time format for {post['time']}. Use YYYY-MM-DD HH:MM:SS"}), 400
+    
+    return jsonify({"message": "Posts scheduled successfully", "jobs": scheduled_jobs}), 200
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
 
 @app.route('/scheduled_posts', methods=['GET'])
 @jwt_required()
 def get_scheduled_posts():
+<<<<<<< HEAD
     try:
         user_id = int(get_jwt_identity())
         scheduled_posts = []
@@ -1071,6 +1192,59 @@ def get_scheduled_posts():
     except Exception as e:
         print(f"Error in get_scheduled_posts: {e}")
         return jsonify({"error": "Internal server error"}), 500
+=======
+    user_id = int(get_jwt_identity())  # Convert string back to int
+    scheduled_posts = []
+    
+    # Check if current user is admin
+    if is_admin_user():
+        # Admin sees ALL scheduled posts
+        for job_id, post_info in scheduled_posts_info.items():
+            job = scheduler.get_job(job_id)
+            if job:
+                # Get username for this post
+                post_user_id = post_info.get("user_id")
+                username = get_username_by_id(post_user_id)
+                
+                scheduled_posts.append({
+                    "job_id": job_id,
+                    "text_preview": post_info["text"],
+                    "full_text": post_info["full_text"],
+                    "scheduled_time": post_info["scheduled_time"],
+                    "created_at": post_info["created_at"],
+                    "status": "scheduled",
+                    "user_id": post_user_id,
+                    "username": username if username else f"DELETED_USER_{post_user_id}",
+                    "is_orphaned": username is None
+                })
+        
+        return jsonify({
+            "scheduled_posts": scheduled_posts, 
+            "total_count": len(scheduled_posts),
+            "admin_view": True,
+            "orphaned_count": sum(1 for post in scheduled_posts if post.get("is_orphaned", False))
+        }), 200
+    
+    else:
+        # Regular users see only their own posts
+        for job_id, post_info in scheduled_posts_info.items():
+            if post_info.get("user_id") == user_id:
+                job = scheduler.get_job(job_id)
+                if job:
+                    scheduled_posts.append({
+                        "job_id": job_id,
+                        "text_preview": post_info["text"],
+                        "scheduled_time": post_info["scheduled_time"],
+                        "created_at": post_info["created_at"],
+                        "status": "scheduled"
+                    })
+        
+        return jsonify({
+            "scheduled_posts": scheduled_posts, 
+            "total_count": len(scheduled_posts),
+            "admin_view": False
+        }), 200
+>>>>>>> 062468a (Initial work on Twitter Scheduler API)
 
 @app.route('/cancel_post/<job_id>', methods=['DELETE'])
 @jwt_required()
