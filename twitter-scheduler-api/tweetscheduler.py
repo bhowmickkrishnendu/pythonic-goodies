@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity, get_jwt
+from flask import send_from_directory
 import tweepy
 import time
 from sqlalchemy import create_engine
@@ -9,6 +10,9 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from datetime import datetime, timedelta
 import mysql.connector
 from werkzeug.security import check_password_hash
+from werkzeug.utils import secure_filename
+import json
+import os
 import requests
 import pyotp
 import qrcode
@@ -16,14 +20,37 @@ import io
 import base64
 from functools import wraps
 import secrets
+import logging
+
 
 app = Flask(__name__)
 
+# Enable CORS for your frontend domain
+#CORS(app, origins=["https://xapp.krishnendub.online"], supports_credentials=True)
 
 # JWT Configuration
 app.config['JWT_SECRET_KEY'] = secrets.token_hex(32)  # Change this to a random secret key
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
 jwt = JWTManager(app)
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+app.logger.setLevel(logging.DEBUG)
+
+@app.before_request
+def log_request_info():
+    if request.path == '/schedule_posts' and request.method == 'POST':
+        app.logger.debug(f"=== DEBUGGING /schedule_posts ===")
+        app.logger.debug(f"Content-Type: {request.content_type}")
+        app.logger.debug(f"Form Data Keys: {list(request.form.keys())}")
+        app.logger.debug(f"Form Data: {dict(request.form)}")
+        app.logger.debug(f"Files Keys: {list(request.files.keys())}")
+        
+        # Check for 'posts' field specifically
+        posts_data = request.form.get('posts')
+        app.logger.debug(f"Posts field exists: {posts_data is not None}")
+        if posts_data:
+            app.logger.debug(f"Posts field content (first 200 chars): {posts_data[:200]}")
 
 # Read API keys and MySQL credentials from keys.txt
 def read_keys(filename="keys.txt"):
@@ -143,6 +170,11 @@ client = tweepy.Client(
     access_token=access_token,
     access_token_secret=access_token_secret
 )
+auth = tweepy.OAuth1UserHandler(
+    consumer_key, consumer_secret, 
+    access_token, access_token_secret
+)
+api = tweepy.API(auth)
 
 # JWT token blacklist check
 @jwt.token_in_blocklist_loader
@@ -832,81 +864,246 @@ def split_text(text, max_length=280, cont_text=" (cont.)"):
 
 scheduled_posts_info = {}
 
-def post_thread(long_post, job_id, user_id):
+
+def post_thread(long_post, job_id, user_id, image_path=None):
     chunks = split_text(long_post)
     try:
-        response = client.create_tweet(text=chunks[0])
+        # Post first tweet with optional image
+        if image_path and os.path.exists(image_path):
+            try:
+                # Use API (v1.1) for media upload
+                media = api.media_upload(image_path)
+                
+                # Use Client (v2) for creating tweet with media
+                response = client.create_tweet(
+                    text=chunks[0],
+                    media_ids=[media.media_id]
+                )
+                
+                # Clean up image after successful post
+                try:
+                    os.remove(image_path)
+                except Exception:
+                    pass
+                    
+            except Exception as e:
+                print(f"Image upload failed: {e}")
+                response = client.create_tweet(text=chunks[0])
+        else:
+            response = client.create_tweet(text=chunks[0])
+
         tweet_id = response.data['id']
-        print(f"Posted first tweet with ID {tweet_id} for user {user_id}")
-        
+
+        # Post remaining chunks as replies
         for chunk in chunks[1:]:
-            time.sleep(60)
-            response = client.create_tweet(text=chunk, in_reply_to_tweet_id=tweet_id)
+            time.sleep(60)  # Wait 1 minute between tweets
+            response = client.create_tweet(
+                text=chunk,
+                in_reply_to_tweet_id=tweet_id
+            )
             tweet_id = response.data['id']
-            print(f"Posted reply tweet with ID {tweet_id}")
-        
+
+        # Clean up scheduled post info
         if job_id in scheduled_posts_info:
             del scheduled_posts_info[job_id]
+
         return True, tweet_id
+
     except Exception as e:
         print(f"Error posting thread: {e}")
+        # Clean up image file on error
+        if image_path and os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+            except Exception:
+                pass
+        
+        # Clean up scheduled post info
         if job_id in scheduled_posts_info:
             del scheduled_posts_info[job_id]
+        
         return False, str(e)
 
 @app.route('/schedule_posts', methods=['POST'])
 @jwt_required()
 def schedule_posts():
-    user_id = int(get_jwt_identity())  # Convert string back to int
-    data = request.json
-    
-    if not data or 'posts' not in data:
-        return jsonify({"error": "Missing 'posts' field in JSON body"}), 400
+    try:
+        user_id = int(get_jwt_identity())
+        
+        # Handle both JSON and FormData requests
+        content_type = request.headers.get('Content-Type', '')
+        app.logger.debug(f"Content-Type: {content_type}")
+        
+        if 'multipart/form-data' in content_type:
+            # FormData request (with potential images)
+            posts_json = request.form.get('posts')
+            if not posts_json:
+                app.logger.debug("Missing 'posts' field in form data")
+                return jsonify({"error": "Missing 'posts' field in form data"}), 400
+            
+            try:
+                posts = json.loads(posts_json)
+                app.logger.debug(f"Parsed posts: {posts}")
+            except json.JSONDecodeError as e:
+                app.logger.debug(f"JSON decode error: {e}")
+                return jsonify({"error": f"Invalid JSON in 'posts' field: {str(e)}"}), 400
+            
+            images = request.files
+            
+        else:
+            # JSON request (text only)
+            data = request.get_json()
+            if not data:
+                app.logger.debug("Missing JSON data in request")
+                return jsonify({"error": "Missing JSON data"}), 400
+            
+            posts = data.get('posts', [])
+            images = {}
+        
+        if not posts:
+            app.logger.debug("No posts provided")
+            return jsonify({"error": "No posts provided"}), 400
+        
+        scheduled_jobs = []
+        
+        # Create uploads directory with absolute path
+        upload_dir = os.path.abspath("uploads")
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        for idx, post in enumerate(posts):
+            text = post.get("text", "").strip()
+            time_str = post.get("time", "")
+            
+            if not text:
+                return jsonify({"error": f"Post {idx + 1}: Text is required"}), 400
+            if not time_str:
+                return jsonify({"error": f"Post {idx + 1}: Time is required"}), 400
+            
+            # Handle image upload with enhanced validation
+            image_path = None
+            image_file = images.get(f'image_{idx}')
+            
+            if image_file and hasattr(image_file, 'filename') and image_file.filename:
+                # Validate file extension
+                allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+                filename = secure_filename(image_file.filename)
+                file_extension = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+                
+                if file_extension not in allowed_extensions:
+                    return jsonify({
+                        "error": f"Post {idx + 1}: Unsupported image format '{file_extension}'. Allowed: {', '.join(allowed_extensions)}"
+                    }), 400
+                
+                # Create unique filename with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                unique_filename = f"{timestamp}_{filename}"
+                image_path = os.path.abspath(os.path.join(upload_dir, unique_filename))
+                
+                try:
+                    # Save the image file
+                    image_file.save(image_path)
+                    
+                    # Verify file was actually saved and has content
+                    if os.path.exists(image_path):
+                        file_size = os.path.getsize(image_path)
+                        if file_size <= 0:
+                            os.remove(image_path)
+                            image_path = None
+                    else:
+                        image_path = None
+                        
+                except Exception:
+                    image_path = None
+                    return jsonify({"error": f"Post {idx + 1}: Failed to save image"}), 500
+            
+            # Parse and validate scheduled time
+            try:
+                scheduled_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+                if scheduled_time <= datetime.now():
+                    # Clean up uploaded image if time validation fails
+                    if image_path and os.path.exists(image_path):
+                        os.remove(image_path)
+                    return jsonify({"error": f"Post {idx + 1}: Scheduled time must be in the future"}), 400
+            except ValueError:
+                # Clean up uploaded image if time validation fails
+                if image_path and os.path.exists(image_path):
+                    os.remove(image_path)
+                return jsonify({"error": f"Post {idx + 1}: Invalid time format. Use YYYY-MM-DD HH:MM:SS"}), 400
+            
+            # Schedule the job
+            try:
+                job = scheduler.add_job(
+                    post_thread, 'date',
+                    run_date=scheduled_time,
+                    args=[text, None, user_id, image_path]
+                )
+                
+                # Store job info in memory
+                scheduled_posts_info[job.id] = {
+                    "text": text[:100] + "..." if len(text) > 100 else text,
+                    "full_text": text,
+                    "scheduled_time": time_str,
+                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "user_id": user_id,
+                    "image_path": image_path
+                }
+                
+                # Update job with correct job_id
+                job.modify(args=[text, job.id, user_id, image_path])
+                
+                scheduled_jobs.append({
+                    "job_id": job.id,
+                    "post_time": time_str,
+                    "has_image": image_path is not None,
+                    "image_path": os.path.basename(image_path) if image_path else None
+                })
+                
+            except Exception:
+                # Clean up uploaded image if scheduling fails
+                if image_path and os.path.exists(image_path):
+                    os.remove(image_path)
+                return jsonify({"error": f"Post {idx + 1}: Failed to schedule"}), 500
+        
+        return jsonify({
+            "message": "Posts scheduled successfully",
+            "jobs": scheduled_jobs,
+            "total_scheduled": len(scheduled_jobs)
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f"Unexpected error in schedule_posts: {e}")
+        import traceback
+        app.logger.error(f"Full traceback: {traceback.format_exc()}")
+        print(f"Unexpected error in schedule_posts: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
-    posts = data['posts']
-    scheduled_jobs = []
-    
-    for post in posts:
-        if 'text' not in post or 'time' not in post:
-            return jsonify({"error": "Each post must have 'text' and 'time' fields"}), 400
-        try:
-            scheduled_time = datetime.strptime(post['time'], "%Y-%m-%d %H:%M:%S")
-            now = datetime.now()
-            if scheduled_time <= now:
-                return jsonify({"error": f"Scheduled time {post['time']} must be in the future"}), 400
-            
-            job = scheduler.add_job(post_thread, 'date', run_date=scheduled_time, args=[post['text'], None, user_id])
-            
-            scheduled_posts_info[job.id] = {
-                "text": post['text'][:100] + "..." if len(post['text']) > 100 else post['text'],
-                "full_text": post['text'],
-                "scheduled_time": post['time'],
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "user_id": user_id
-            }
-            
-            job.modify(args=[post['text'], job.id, user_id])
-            scheduled_jobs.append({"post_time": post['time'], "job_id": job.id})
-        except ValueError:
-            return jsonify({"error": f"Invalid time format for {post['time']}. Use YYYY-MM-DD HH:MM:SS"}), 400
-    
-    return jsonify({"message": "Posts scheduled successfully", "jobs": scheduled_jobs}), 200
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    """Serve uploaded files"""
+    try:
+        upload_dir = os.path.abspath("uploads")
+        return send_from_directory(upload_dir, filename)
+    except Exception:
+        return jsonify({"error": "File not found"}), 404
 
 @app.route('/scheduled_posts', methods=['GET'])
 @jwt_required()
 def get_scheduled_posts():
-    user_id = int(get_jwt_identity())  # Convert string back to int
+    user_id = int(get_jwt_identity())
     scheduled_posts = []
-    
-    # Check if current user is admin
+
     if is_admin_user():
         # Admin sees ALL scheduled posts
         for job_id, post_info in scheduled_posts_info.items():
             job = scheduler.get_job(job_id)
             if job:
-                # Get username for this post
                 post_user_id = post_info.get("user_id")
                 username = get_username_by_id(post_user_id)
+                
+                # ✅ FIXED: Extract just filename from full path
+                image_filename = None
+                if post_info.get("image_path"):
+                    image_filename = os.path.basename(post_info["image_path"])
                 
                 scheduled_posts.append({
                     "job_id": job_id,
@@ -917,35 +1114,37 @@ def get_scheduled_posts():
                     "status": "scheduled",
                     "user_id": post_user_id,
                     "username": username if username else f"DELETED_USER_{post_user_id}",
-                    "is_orphaned": username is None
+                    "is_orphaned": username is None,
+                    "has_image": image_filename is not None,
+                    "image_path": image_filename  # ✅ Just filename, not full path
                 })
-        
-        return jsonify({
-            "scheduled_posts": scheduled_posts, 
-            "total_count": len(scheduled_posts),
-            "admin_view": True,
-            "orphaned_count": sum(1 for post in scheduled_posts if post.get("is_orphaned", False))
-        }), 200
-    
     else:
         # Regular users see only their own posts
         for job_id, post_info in scheduled_posts_info.items():
             if post_info.get("user_id") == user_id:
                 job = scheduler.get_job(job_id)
                 if job:
+                    # ✅ FIXED: Extract just filename from full path
+                    image_filename = None
+                    if post_info.get("image_path"):
+                        image_filename = os.path.basename(post_info["image_path"])
+                    
                     scheduled_posts.append({
                         "job_id": job_id,
                         "text_preview": post_info["text"],
+                        "full_text": post_info["full_text"],
                         "scheduled_time": post_info["scheduled_time"],
                         "created_at": post_info["created_at"],
-                        "status": "scheduled"
+                        "status": "scheduled",
+                        "has_image": image_filename is not None,
+                        "image_path": image_filename  # ✅ Just filename, not full path
                     })
-        
-        return jsonify({
-            "scheduled_posts": scheduled_posts, 
-            "total_count": len(scheduled_posts),
-            "admin_view": False
-        }), 200
+
+    return jsonify({
+        "scheduled_posts": scheduled_posts,
+        "total_count": len(scheduled_posts),
+        "admin_view": is_admin_user()
+    }), 200
 
 @app.route('/cancel_post/<job_id>', methods=['DELETE'])
 @jwt_required()
