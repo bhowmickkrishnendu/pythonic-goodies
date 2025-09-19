@@ -65,16 +65,30 @@ MYSQL_DB = 'apscheduler_db'
 
 # Database connection
 def get_db_connection():
-    conn = mysql.connector.connect(
-        host=MYSQL_HOST,
-        user=mysql_user,
-        password=mysql_password,
-        database=MYSQL_DB
-    )
-    cursor = conn.cursor()
-    cursor.execute("SET time_zone = '+05:30'")
-    cursor.close()
-    return conn
+    max_retries = 3
+    retry_delay = 1
+    
+    for attempt in range(max_retries):
+        try:
+            conn = mysql.connector.connect(
+                host=MYSQL_HOST,
+                user=mysql_user,
+                password=mysql_password,
+                database=MYSQL_DB,
+                autocommit=True,
+                pool_name='mypool',
+                pool_size=10,
+                pool_reset_session=True
+            )
+            cursor = conn.cursor()
+            cursor.execute("SET time_zone = '+05:30'")
+            cursor.close()
+            return conn
+        except mysql.connector.Error as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+            else:
+                raise e
 
 # Initialize database tables
 def init_db():
