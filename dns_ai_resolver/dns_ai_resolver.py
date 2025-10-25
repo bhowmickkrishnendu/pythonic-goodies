@@ -1,14 +1,8 @@
 from dnslib import DNSRecord, QTYPE, RR, TXT
 from dnslib.server import DNSServer
-import requests, json, time, os
-from dotenv import load_dotenv
+import requests, json, time
 
-# Load .env file.
-load_dotenv()
-PPLX_API_KEY = os.getenv("PPLX_API_KEY")
-
-if not PPLX_API_KEY:
-    raise ValueError("Missing PPLX_API_KEY in .env file")
+PPLX_API_KEY = "YOUR_PERPLEXITY_API_KEY"
 
 def ask_perplexity(prompt):
     url = "https://api.perplexity.ai/chat/completions"
@@ -27,7 +21,7 @@ def ask_perplexity(prompt):
     }
 
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=15)
+        r = requests.post(url, headers=headers, json=payload)
         if r.status_code != 200:
             print("API Error:", r.status_code, r.text)
             return f"error: {r.status_code}"
