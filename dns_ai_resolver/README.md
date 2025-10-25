@@ -1,4 +1,4 @@
-# 🧩 DNS-AI Resolver (Perplexity + Python)
+# 🧩 DNS-AI Resolver (Perplexity + Python).
 
 This project lets you **chat with an AI model through DNS TXT queries**, even when normal internet (HTTP/HTTPS) is blocked.  
 It uses Python, the `dnslib` package, and the **Perplexity AI API**.
