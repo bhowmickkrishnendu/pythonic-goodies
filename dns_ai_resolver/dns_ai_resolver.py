@@ -3,7 +3,7 @@ from dnslib.server import DNSServer
 import requests, json, time, os
 from dotenv import load_dotenv
 
-# Load .env file
+# Load .env file.
 load_dotenv()
 PPLX_API_KEY = os.getenv("PPLX_API_KEY")
 
