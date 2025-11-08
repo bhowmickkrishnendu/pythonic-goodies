@@ -170,7 +170,7 @@ jobstores = {
     'default': SQLAlchemyJobStore(engine=engine)
 }
 
-scheduler = BackgroundScheduler(jobstores=jobstores)
+x(jobstores=jobstores)
 scheduler.start()
 
 # Tweepy client setup

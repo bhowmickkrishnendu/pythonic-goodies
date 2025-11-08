@@ -23,6 +23,7 @@ class RandomGenerator(tk.Tk):
         super().__init__()
         self.title("Random Generator")
         self.geometry("400x200")
+        self.resizable(False, False)
 
         # Create labels
         self.result_label = tk.Label(self, text="", font=("Arial", 14))
@@ -35,6 +36,9 @@ class RandomGenerator(tk.Tk):
         self.password_button = tk.Button(self, text="Generate Password", command=self.generate_password)
         self.password_button.pack(pady=5)
 
+        self.text = tk.Label(self, text="Note: When you click on username or password button, \npassword get automatically copied.", justify="left", font=("Arial", 10, "italic"))
+        self.text.pack(pady=7)
+
     def generate_username(self):
         username = generate_random_username()
         self.result_label.config(text=f"Username: {username}")
@@ -44,6 +48,7 @@ class RandomGenerator(tk.Tk):
         password = generate_random_password()
         self.result_label.config(text=f"Password: {password}")
         pyperclip.copy(password)
+        # self.result_label.config(text="Hello")
 
 # Utilities:Random:Generator:Main
 if __name__ == "__main__":
