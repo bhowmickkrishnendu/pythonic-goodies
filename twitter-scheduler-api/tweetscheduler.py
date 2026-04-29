@@ -24,6 +24,9 @@ import logging
 
 app = Flask(__name__)
 
+# Enable CORS for your frontend domain
+#CORS(app, origins=["https://xapp.krishnendub.online"], supports_credentials=True)
+
 # JWT Configuration
 app.config['JWT_SECRET_KEY'] = secrets.token_hex(32)  # Change this to a random secret key
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
